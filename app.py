@@ -19,6 +19,16 @@ from sample_texts import SAMPLES
 
 st.set_page_config(page_title="Frequency Analysis Attack", layout="wide")
 
+# Minimum text length. Frequency analysis is statistical and unreliable on short
+# text, so we require a few lines (counted in letters, which is what the attack
+# actually uses) before allowing an attack.
+MIN_LETTERS = 150
+
+
+def count_letters(text):
+    """Number of alphabetic characters in text (spaces/punctuation ignored)."""
+    return sum(1 for ch in text if ch.isalpha())
+
 # ---------------------------------------------------------------------------
 # Session state: persist data as the user moves between tabs.
 # ---------------------------------------------------------------------------
@@ -48,31 +58,46 @@ with tab_create:
         "it only sees the ciphertext."
     )
 
+    st.caption(
+        f"Text must be at least a few lines (**{MIN_LETTERS} letters**). "
+        "Frequency analysis is statistical and does not work on short text."
+    )
+
     col1, col2 = st.columns(2)
     with col1:
         choice = st.selectbox("Sample text", ["(type my own)"] + list(SAMPLES.keys()))
         default_text = "" if choice == "(type my own)" else SAMPLES[choice]
         plaintext = st.text_area("Plaintext", value=default_text, height=200)
+        st.caption(f"{count_letters(plaintext)} letters "
+                   f"(minimum {MIN_LETTERS})")
 
     with col2:
         seed_on = st.checkbox("Use a fixed random seed (reproducible key)", value=True)
         seed = st.number_input("Seed", value=42, step=1) if seed_on else None
 
         if st.button("Encrypt", type="primary"):
-            if plaintext.strip():
+            if count_letters(plaintext) < MIN_LETTERS:
+                st.warning(
+                    f"Text is too short — only {count_letters(plaintext)} letters. "
+                    f"Please enter at least {MIN_LETTERS} letters (a few lines)."
+                )
+            else:
                 key = cipher.generate_key(seed=int(seed) if seed is not None else None)
                 st.session_state.true_key = key
                 st.session_state.ciphertext = cipher.encrypt(plaintext, key)
                 st.success("Ciphertext generated. Go to the Automatic Attack tab.")
-            else:
-                st.warning("Enter some text first.")
 
         # Allow pasting a ciphertext directly (no known key).
         st.divider()
         st.write("…or paste a ciphertext you already have:")
         pasted = st.text_area("Ciphertext input", height=120, key="pasted_ct")
         if st.button("Use pasted ciphertext"):
-            if pasted.strip():
+            if count_letters(pasted) < MIN_LETTERS:
+                st.warning(
+                    f"Ciphertext is too short — only {count_letters(pasted)} letters. "
+                    f"Please paste at least {MIN_LETTERS} letters (a few lines)."
+                )
+            else:
                 st.session_state.ciphertext = pasted.upper()
                 st.session_state.true_key = ""  # unknown
                 st.success("Loaded. Go to the Automatic Attack tab.")
