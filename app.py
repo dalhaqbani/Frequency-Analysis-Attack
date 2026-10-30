@@ -3,10 +3,9 @@ app.py
 ------
 Streamlit interface for the Frequency Analysis Attack tool (CYS401 Idea 11).
 
-Three tabs:
+Two tabs:
     1. Create Ciphertext  - encrypt a sample or your own text, to attack.
     2. Automatic Attack   - run frequency analysis and see the guess + scores.
-    3. Manual Refinement  - hand-tune the letter mapping to finish the break.
 
 Run with:  streamlit run app.py
 """
@@ -27,8 +26,6 @@ if "ciphertext" not in st.session_state:
     st.session_state.ciphertext = ""
 if "true_key" not in st.session_state:
     st.session_state.true_key = ""
-if "overrides" not in st.session_state:
-    st.session_state.overrides = {}  # {cipher_letter: plain_letter}
 
 st.title("Frequency Analysis Attack")
 st.caption(
@@ -36,8 +33,8 @@ st.caption(
     "frequencies to the frequencies of letters in English.  •  CYS401 Project — Idea 11"
 )
 
-tab_create, tab_attack, tab_manual = st.tabs(
-    ["1 · Create Ciphertext", "2 · Automatic Attack", "3 · Manual Refinement"]
+tab_create, tab_attack = st.tabs(
+    ["1 · Create Ciphertext", "2 · Automatic Attack"]
 )
 
 # ===========================================================================
@@ -66,7 +63,6 @@ with tab_create:
                 key = cipher.generate_key(seed=int(seed) if seed is not None else None)
                 st.session_state.true_key = key
                 st.session_state.ciphertext = cipher.encrypt(plaintext, key)
-                st.session_state.overrides = {}  # reset any manual edits
                 st.success("Ciphertext generated. Go to the Automatic Attack tab.")
             else:
                 st.warning("Enter some text first.")
@@ -79,7 +75,6 @@ with tab_create:
             if pasted.strip():
                 st.session_state.ciphertext = pasted.upper()
                 st.session_state.true_key = ""  # unknown
-                st.session_state.overrides = {}
                 st.success("Loaded. Go to the Automatic Attack tab.")
 
     if st.session_state.ciphertext:
@@ -149,12 +144,11 @@ with tab_attack:
             "Pure single-letter frequency analysis rarely cracks a message "
             "perfectly on the first pass — especially short ones. The rare "
             "letters (J, Q, X, Z) and close-frequency letters often get "
-            "swapped. Two ways to finish the break: **Smart solve** below "
-            "(automatic), or the **Manual Refinement** tab (by hand)."
+            "swapped. Use **Smart solve** below to finish the break."
         )
 
         st.divider()
-        st.markdown("Using Bi-grams")
+        st.markdown("### Smart solve (automatic)")
         st.caption(
             "Goes beyond single letters: searches for the key whose decryption "
             "best matches English **letter-pair** (bigram) frequencies, by "
@@ -179,64 +173,3 @@ with tab_attack:
                             if a == b and a.isalpha())
                 st.metric("Letters correct vs. true plaintext",
                           f"{(right / total * 100) if total else 0:.0f}%")
-            st.caption(
-                "Any leftover wrong letters are usually rare-letter swaps — "
-                "load this into the Manual Refinement tab to finish."
-            )
-            if st.button("Send to Manual Refinement →"):
-                # Seed the manual tab with the smart-solve mapping as overrides.
-                base = fa.build_mapping(st.session_state.ciphertext)
-                overrides = {c: p for c, p in st.session_state.smart_mapping.items()
-                             if base.get(c) != p}
-                st.session_state.overrides = overrides
-                st.success("Loaded into the Manual Refinement tab.")
-
-# ===========================================================================
-# TAB 3 — Manual refinement
-# ===========================================================================
-with tab_manual:
-    st.subheader("Manual refinement")
-
-    if not st.session_state.ciphertext:
-        st.info("Create or paste a ciphertext in tab 1 first.")
-    else:
-        base_mapping = fa.build_mapping(st.session_state.ciphertext)
-
-        st.write(
-            "Override individual letters below. The tool keeps the mapping a "
-            "valid permutation: forcing a letter automatically swaps whatever "
-            "letter was previously using that plaintext slot."
-        )
-
-        # Build override controls in a grid, ordered by ciphertext frequency
-        # so the most informative letters come first.
-        order = fa.sorted_by_frequency(st.session_state.ciphertext)
-        order += [c for c in fa.ALPHABET if c not in order]
-
-        overrides = {}
-        cols = st.columns(6)
-        options = ["(auto)"] + list(fa.ALPHABET)
-        for i, cipher_letter in enumerate(order):
-            with cols[i % 6]:
-                current = st.session_state.overrides.get(cipher_letter, "(auto)")
-                idx = options.index(current) if current in options else 0
-                pick = st.selectbox(
-                    f"{cipher_letter} →", options, index=idx, key=f"ov_{cipher_letter}"
-                )
-                if pick != "(auto)":
-                    overrides[cipher_letter] = pick
-
-        st.session_state.overrides = overrides
-
-        final_mapping = fa.apply_overrides(base_mapping, overrides)
-        decoded = fa.decrypt_with_mapping(st.session_state.ciphertext, final_mapping)
-        score = fa.chi_squared_score(decoded)
-
-        st.divider()
-        st.markdown("**Current decryption**")
-        st.text_area("Refined output", value=decoded, height=200, disabled=True)
-        st.metric("Chi-squared score (lower = more English-like)", round(score, 1))
-
-        if st.button("Reset manual overrides"):
-            st.session_state.overrides = {}
-            st.rerun()
